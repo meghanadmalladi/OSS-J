@@ -22,6 +22,41 @@ On PREEMPT_RT, standard NAPI may execute in IRQ-thread context or ksoftirqd. Ded
 
 Use two AM64x-HSEVM boards, each with two Cortex-A cores, running the same PREEMPT_RT kernel build. Use one ICSSG Ethernet port on each board with a direct cable. ICSSG is the selected driver for this study; confirm interface names and RX queue/NAPI mapping during setup.
 
+### Layouts considered and selected layout
+
+With only two cores, networking, the application, and housekeeping cannot each have a separate CPU.
+
+| Layout | CPU0 | CPU1 | What it emphasizes |
+|---|---|---|---|
+| **1 — selected** | Isolated CPU for Ethernet IRQs/NAPI | Application + housekeeping | Comparing NAPI modes with reduced unrelated interference on the polling CPU |
+| 2 — alternative | Ethernet IRQs/NAPI + housekeeping | Isolated CPU for the application | Comparing networking under system activity while reducing interference on application execution |
+
+**Choose layout 1: CPU0 isolated for IRQ/NAPI; CPU1 for the application and housekeeping.** The mechanism under comparison executes on CPU0, so this layout prioritizes controlling unrelated scheduling interference there. It also separates the continuously polling NAPI thread from the application. Keep this allocation on both boards across all three modes, with the server's NAPI mode fixed.
+
+This is an experimental design choice, not a measured claim that layout 1 always gives lower latency. Layout 2 is also valid, but answers a different question about NAPI sharing CPU time with housekeeping. We will not add a layout sweep to the core matrix.
+
+Isolation here means excluding ordinary unrelated task placement and moving movable housekeeping away from CPU0, alongside explicit IRQ/NAPI affinity. It does not eliminate all per-CPU kernel activity. Verify the actual polling context and CPU rather than assuming affinity alone establishes isolation.
+
+The trade-off is that sockperf shares CPU1 with housekeeping and, in loaded client runs, stress-ng. Report end-to-end RTT on this fixed two-core system. Application scheduling and the peer's response time remain part of the measurement, so RTT differences alone do not isolate NAPI execution time. CPU1 stress tests application-side contention and shared-resource effects; it does not directly stress the NAPI CPU.
+
+### Published xsk_rr benchmark as context
+
+The [threaded NAPI busy-poll proposal](https://lwn.net/Articles/1034942/) describes two machines and the following configuration:
+
+| Component | Published placement/settings |
+|---|---|
+| Ethernet IRQs | CPU2 |
+| Busy-polling NAPI thread | CPU2, SCHED_FIFO priority 50 |
+| Client and server applications | Allowed on CPUs 3–5, SCHED_FIFO priority 50 |
+| Client sender | Separate thread |
+| Other controls | SMT disabled, one RX and one TX queue, RPS/RFS disabled, hardware interrupt moderation disabled |
+
+The application affinity is an allowed CPU set, not a published one-thread-per-core assignment. Four distinct CPU IDs are allocated across networking and application execution, but the total physical core count and simultaneous utilization are unspecified. The post does not establish a complete housekeeping/isolation setup or that PREEMPT_RT was enabled. Its results labelled “NAPI threaded” refer to threaded NAPI busy polling, not ordinary threaded NAPI.
+
+Our two-core sockperf experiment therefore does not reproduce that benchmark's CPU allocation or AF_XDP receive path. It evaluates the three NAPI modes within the AM64x resource constraint.
+
+### Fixed configuration
+
 | Setting | Client DUT — evaluated board | Server DUT — fixed peer |
 |---|---|---|
 | CPU0 / Core A | Ethernet RX/TX IRQs and NAPI processing | Ethernet RX/TX IRQs and NAPI processing |
