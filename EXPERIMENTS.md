@@ -4,36 +4,54 @@ Updated November 12, 2026. See [SUMMARY.md](SUMMARY.md) for the complete plan.
 
 ## Objective and scope
 
-For a given traffic pattern and CPU budget, which NAPI mode delivers predictable application latency, and when does scheduling policy change the answer?
+Under one fixed AM64x-HSEVM configuration, which NAPI mode delivers predictable application latency for each traffic pattern and CPU budget?
 
 Compare standard NAPI, threaded NAPI, and threaded NAPI with busy polling on PREEMPT_RT. Define optimum as meeting a preselected RTT deadline with acceptable loss and the lowest CPU cost. Recommendations must identify the tested workload and hardware conditions.
 
-Teach the mechanisms briefly, then give the audience measured selection guidance. Socket SO_BUSY_POLL is deferred to later work.
+Teach the mechanisms briefly, then give the audience measured selection guidance. Socket SO_BUSY_POLL and scheduling-policy/priority sweeps are deferred to later work.
 
 | Mode | Mechanism | Question |
 |---|---|---|
 | Standard NAPI | Interrupt schedules softirq-based polling | How does the default receive path handle different loads? |
-| Threaded NAPI | Dedicated kernel thread executes scheduled polling | Does control over poller scheduling improve the tail? |
+| Threaded NAPI | Dedicated kernel thread executes scheduled polling | How does a dedicated poller affect the tail under fixed scheduling? |
 | Threaded NAPI busy polling | Dedicated kernel thread continuously checks the queue | Is the latency benefit worth the CPU cost? |
 
 On PREEMPT_RT, standard NAPI may execute in IRQ-thread context or ksoftirqd. Dedicated threaded NAPI has its own napi/<interface>-<id> thread. Ordinary threaded NAPI normally completes polling and returns to interrupts when idle. Timer-based IRQ deferral is separately configurable. A blocking recvfrom()/recvmsg() returns available data or sleeps inside the call until data or another terminating condition arrives. After processing, the application calls receive again.
 
 ## Setup and CPU placement
 
-Use two DUTs connected by Ethernet. Run sockperf client on the evaluated DUT and sockperf server on the peer. Change modes, stress, and scheduling only on the client during the initial study. Hold the server configuration fixed and record it.
+Use two AM64x-HSEVM boards, each with two Cortex-A cores, running the same PREEMPT_RT kernel build. Use one ICSSG Ethernet port on each board with a direct cable. ICSSG is the selected driver for this study; confirm interface names and RX queue/NAPI mapping during setup.
 
-Starting layout on each dual-core board
+| Setting | Client DUT — evaluated board | Server DUT — fixed peer |
+|---|---|---|
+| CPU0 / Core A | Ethernet RX/TX IRQs and NAPI processing | Ethernet RX/TX IRQs and NAPI processing |
+| CPU1 / Core B | All sockperf threads and housekeeping | sockperf server and housekeeping |
+| Test RX NAPI mode | Standard, threaded, or threaded busy polling | Standard throughout |
+| Application scheduling | SCHED_OTHER | SCHED_OTHER |
+| Dedicated NAPI scheduling | SCHED_OTHER when enabled | Not applicable to the standard baseline |
+| IRQ-thread scheduling | Kernel defaults, recorded | Kernel defaults, recorded |
 
-| Core | Work |
-|---|---|
-| Core A / CPU0 | Ethernet IRQs and NAPI processing |
-| Core B / CPU1 | Benchmark application and housekeeping |
+Within each traffic/load condition, change only the client RX NAPI mode. Traffic pattern and idle/loaded state are the planned workload variables. Keep the server configuration fixed and free of added stress.
 
-Set dedicated NAPI-thread affinity explicitly. taskset supplies affinity; cpusets/isolation and IRQ/workqueue placement are also needed to reduce unrelated work on Core A. Verify actual placement and RPS settings. Some per-CPU kernel activity remains.
+Configure once and retain across all runs
 
-Start applications and dedicated NAPI threads with SCHED_OTHER for the mode comparison. Record the actual IRQ-thread and standard-NAPI execution policies. Inspect sockperf sender/receiver threads and achieved rate before applying RT policy to the application. Multiple runnable threads sharing CPU1 can affect pacing.
+- Reserve CPU0 from ordinary task placement with a cpuset isolated partition. Explicitly assign networking work there. taskset alone supplies affinity and does not reserve a CPU.
+- Place movable unrelated IRQs, tasks, and workqueues on CPU1. Some per-CPU kernel activity remains.
+- Pin relevant Ethernet IRQs to CPU0 and prevent irqbalance from overriding assignments.
+- Explicitly pin each dedicated test NAPI thread to CPU0 when created; verify SCHED_OTHER.
+- Disable RPS/RFS on the test receive path.
+- Disable socket busy polling and optional software IRQ deferral. Record net.core.busy_read, net.core.busy_poll, gro_flush_timeout, and napi_defer_hard_irqs.
+- Retain one fixed hardware interrupt moderation setting, MTU, offload configuration, queue configuration, poll budget, and CPU-frequency policy. Record actual values.
 
-RTT uses the client clock, requiring no inter-machine PTP. Both DUTs contribute to RTT; the result is end-to-end application latency. A focused DUT trace can help attribute a difference.
+ICSSG has distinct RX and TX NAPI processing. Use per-NAPI controls to switch the RX instance carrying the test flow. Keep TX NAPI in its baseline mode. Avoid enabling busy polling device-wide and creating multiple continuously polling TX/RX threads on CPU0. Verify the exact kernel's per-instance control support before the main run.
+
+Record the actual standard-NAPI execution context and policy on RT. It may run in IRQ-thread context or ksoftirqd. Fixed settings do not make those contexts identical to a dedicated SCHED_OTHER NAPI thread.
+
+Run the fixed CPU stressor only on client CPU1. It tests application-side contention and shared-resource effects, rather than direct CPU competition with the poller on CPU0.
+
+Validate actual RX polling placement and achieved sockperf rate once before the matrix. Sender and receiver threads share CPU1 under SCHED_OTHER. Keep this placement for all modes.
+
+RTT uses the client clock, requiring no inter-machine PTP. Both boards contribute to RTT. Record server CPU/load and loss so peer bottlenecks can be recognized. A focused diagnostic trace may help attribute a difference.
 
 ## Tool choice
 
@@ -66,19 +84,14 @@ Select one sustainable common high rate for the main matrix. Report actual rate 
 
 3 modes × 3 traffic patterns × 2 load conditions = 18 conditions.
 
-The load conditions are idle and CPU contention. Use one fixed stress placement for the core matrix, initially CPU1 with the application. Repeat each condition three times for 60 seconds of measurement with 10 seconds of warmup. This is 54 minutes measured time and about 63 minutes including warmup, before setup and collection. Alternate mode order across repeats.
+The load conditions are idle and CPU contention. Use one fixed stress placement for the core matrix, client CPU1 with the application throughout. Repeat each condition three times for 60 seconds of measurement with 10 seconds of warmup. This is 54 minutes measured time and about 63 minutes including warmup, before setup and collection. Alternate mode order across repeats.
 
 Warmup must be consistently excluded from analysis; validate the installed tool's behavior. Do not claim a 60-second file automatically excludes a separately intended warmup.
 
-## Scheduling follow-up
+## Fixed scheduling
 
-Use one revealing traffic pattern and CPU contention condition to compare SCHED_OTHER with SCHED_FIFO for the two dedicated NAPI modes. Keep application and IRQ-thread policies unchanged. Record the chosen FIFO priority and its relation to competing threads.
+Keep applications and dedicated NAPI threads at SCHED_OTHER. Preserve IRQ-thread defaults and record them. Scheduling-policy and priority comparisons are deferred so the study focuses on NAPI modes under one fixed setup.
 
-If needed, move the stress worker to Core A for this separate experiment and collect an SCHED_OTHER baseline at that exact placement first. Reuse results only when all other settings match. Reserve roughly 20 minutes for this limited follow-up.
-
-Standard NAPI has no dedicated per-instance scheduling policy. Changes to IRQ-thread or ksoftirqd policy affect a broader execution context and belong in a separately identified experiment.
-
-SCHED_RR is optional and most informative with an equal-priority runnable RT competitor. FIFO and RR may behave similarly without one. A FIFO busy poller may starve ordinary work on its core. Record achieved stress-worker progress as well as networking latency.
 
 ## Stress workloads
 
@@ -91,7 +104,7 @@ These reproduce resource pressure, with application analogies rather than claims
 | Context switching | IPC-heavy cooperating services | Optional |
 | Network background | Diagnostics/logging/software transfer | Optional |
 
-Example commands for CPU1; change placement only in a documented experiment.
+CPU stress is fixed to client CPU1. Memory and switch examples are future extensions using the same placement.
 
 ~~~bash
 taskset -c 1 stress-ng --cpu 1 --cpu-method int64 \
@@ -174,7 +187,7 @@ Create data paths when measurements exist
 - scripts/ containing tested reproduction commands
 - Editable presentation, final PDF, and speaker notes
 
-Final recommendation table should map traffic pattern, contention, CPU budget, and scheduling policy to measured latency, loss, and CPU cost. Findings remain pending.
+Final recommendation table should map traffic pattern, contention, and CPU cost under the fixed scheduling configuration to measured latency, loss, and CPU cost. Findings remain pending.
 
 ## Sources
 
