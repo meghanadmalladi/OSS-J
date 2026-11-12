@@ -13,17 +13,17 @@ Working title — Choosing a NAPI Mode for Predictable Networking on PREEMPT_RT.
 | 3 | Standard NAPI on non-RT and RT | Execution context and scheduling |
 | 4 | Three NAPI mechanisms | Trigger, polling context, empty-queue behavior |
 | 5 | Hypotheses | Benefits to test, with no assumed winner |
-| 6 | Two-DUT setup and CPU layout | RTT scope, fixed peer, no inter-board PTP |
+| 6 | Fixed dual-core AM64x-HSEVM setup | CPU0 networking, CPU1 application/housekeeping, fixed peer |
 | 7 | Periodic, bursty, sustained traffic | Arrival shape and rate both matter |
 | 8 | Idle versus CPU contention results | Tail latency, late/missing replies |
 | 9 | CPU cost | Cost of each mode, including idle polling |
-| 10 | Scheduling comparison | SCHED_OTHER versus FIFO and competitor progress |
+| 10 | Explain one result | Focused trace relating poll execution to application delivery |
 | 11 | Evidence-based selection table | Which mode fits which tested condition |
 | 12 | Reproduction and takeaways | Repeatable procedure and practical limits |
 
 Keep mechanisms concise and use diagrams showing IRQ thread, ksoftirqd where relevant, dedicated NAPI thread, socket queue, and application receive. A socket wakeup makes the receiver runnable; it still needs CPU time.
 
-Backup material covers exact settings, repeat statistics, and optional tests. SO_BUSY_POLL is deferred. Populate findings only from measurements.
+Backup material covers exact settings, repeat statistics, and optional tests. SO_BUSY_POLL and scheduling sweeps are deferred. Populate findings only from measurements.
 
 ## Sources
 
