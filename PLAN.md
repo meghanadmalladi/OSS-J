@@ -2,18 +2,22 @@
 
 See [SUMMARY.md](SUMMARY.md) for the complete plan and [EXPERIMENTS.md](EXPERIMENTS.md) for commands.
 
+## Fixed test configuration
+
+Two AM64x-HSEVMs with matching PREEMPT_RT builds and directly connected ICSSG ports. CPU0 handles Ethernet IRQs/NAPI; CPU1 handles sockperf and housekeeping. Applications and dedicated NAPI threads use SCHED_OTHER. Server remains in standard NAPI. Switch only the client test RX instance and keep TX behavior fixed. CPU stress runs only on client CPU1. Full setup is in [SUMMARY.md](SUMMARY.md).
+
 ## Deadline and effort
 
 Complete by November 27, 2026, IST. Cap personal effort at 3–4 hours per week. Updated November 12. Weekly allocations include work already spent that week; remaining capacity must be checked rather than restarting the budget.
 
 | Week | Work | Minutes |
 |---|---|---|
-| Nov 9–15 | Verify two DUTs, kernel/mode support, and session duration | 30 |
+| Nov 9–15 | Verify two AM64x-HSEVMs, RX mode support, and session duration | 30 |
 | Nov 9–15 | Validate sockperf, placement, logs, and traffic pacing | 75 |
 | Nov 9–15 | Prepare repeatable run commands and slide skeleton | 75 |
 | Nov 9–15 | Contingency | 60 |
 | Nov 16–22 | Run 18-condition matrix with repeats and collect evidence | 100 |
-| Nov 16–22 | Limited scheduling-policy follow-up | 20 |
+| Nov 16–22 | Verify fixed configuration and repeatability | 20 |
 | Nov 16–22 | Analyse and plot results | 45 |
 | Nov 16–22 | Freeze conclusions and evidence | 15 |
 | Nov 16–22 | Rerun/diagnostic contingency | 60 |
@@ -27,7 +31,7 @@ Total 10 planned hours plus 2 contingency hours. This assumes a working kernel a
 
 By November 15
 
-- [ ] Confirm exact boards, kernels, NIC drivers, three-mode support, accepted title, and session duration.
+- [ ] Confirm both AM64x-HSEVMs, matching kernel builds, ICSSG ports, and RX per-instance three-mode support, accepted title, and session duration.
 - [ ] Validate two-DUT setup and fixed server configuration.
 - [ ] Verify application threads, IRQ/NAPI placement, and baseline scheduling.
 - [ ] Validate RTT/sample logs and select deadline and sustained rate.
@@ -36,7 +40,7 @@ By November 15
 By November 22
 
 - [ ] Complete 18 conditions with repeats.
-- [ ] Complete a limited SCHED_OTHER/FIFO comparison.
+- [ ] Verify RX-only mode switching, fixed policies, and unchanged server settings.
 - [ ] Save raw evidence and commands.
 - [ ] Generate latency and CPU figures with loss/sample counts.
 - [ ] Freeze conclusions; take a diagnostic trace only where needed.
@@ -53,6 +57,6 @@ By November 27
 
 If kernel support requires work beyond the setup allowance, decide by November 15 whether an already available compatible image can be used. Otherwise explicitly disclose any unsupported mode as unmeasured, retaining its mechanism discussion.
 
-Prioritize the core matrix and scheduling follow-up. Memory stress, switch stress, background network traffic, RR, payload sweeps, and moderation/budget sweeps are optional. If even core work exceeds the remaining budget, record a reduced scope before running it and preserve repeat measurements.
+Prioritize the core matrix using the fixed AM64x-HSEVM setup. Scheduling-policy/priority and moderation/budget sweeps are deferred. Memory stress, switch stress, background traffic, and payload extensions are optional only after core work. If even core work exceeds the remaining budget, record a reduced scope before running it and preserve repeat measurements.
 
 Status is planning complete; hardware validation, experiments, and slides are not yet reported complete. Track time spent, blockers, and evidence in issues #1–#3.
